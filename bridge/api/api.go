@@ -8,8 +8,8 @@ import (
 
 	"gopkg.in/olahol/melody.v1"
 
-	"github.com/42wim/matterbridge/bridge"
-	"github.com/42wim/matterbridge/bridge/config"
+	"github.com/StephDC/matterbridge/bridge"
+	"github.com/StephDC/matterbridge/bridge/config"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	ring "github.com/zfjagann/golang-ring"

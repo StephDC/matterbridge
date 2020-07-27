@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/42wim/matterbridge/bridge"
-	"github.com/42wim/matterbridge/bridge/config"
-	"github.com/42wim/matterbridge/bridge/helper"
+	"github.com/StephDC/matterbridge/bridge"
+	"github.com/StephDC/matterbridge/bridge/config"
+	"github.com/StephDC/matterbridge/bridge/helper"
 	"github.com/matterbridge/discordgo"
 )
 
