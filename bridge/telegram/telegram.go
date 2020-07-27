@@ -122,11 +122,17 @@ func (b *Btelegram) Send(msg config.Message) (string, error) {
 }
 
 func (b *Btelegram) getFileDirectURL(id string) string {
-	res, err := b.c.GetFileDirectURL(id)
+	longurl := "https://s.aureus.ga/cgi-bin/tgBotFile.cgi?src=StaphAT&file="+id
+	resp, err := http.Get("http://localhost/s/create/"+longurl)
 	if err != nil {
 		return ""
 	}
-	return res
+	body, err := ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return ""
+	}
+	return "https://aureus.ga/s/"+body
 }
 
 func (b *Btelegram) sendMessage(chatid int64, username, text string) (string, error) {
