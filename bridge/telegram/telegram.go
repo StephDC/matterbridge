@@ -134,7 +134,7 @@ func (b *Btelegram) getFileDirectURL(id string) string {
 	if err != nil {
 		return ""
 	}
-	return "https://aureus.ga/s/"+body
+	return "https://aureus.ga/s/"+string(body)
 }
 
 func (b *Btelegram) sendMessage(chatid int64, username, text string) (string, error) {
