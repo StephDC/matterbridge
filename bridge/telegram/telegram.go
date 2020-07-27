@@ -5,6 +5,8 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"net/http"
+	"io/ioutil"
 
 	"github.com/StephDC/matterbridge/bridge"
 	"github.com/StephDC/matterbridge/bridge/config"
