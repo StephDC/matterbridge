@@ -197,7 +197,7 @@ func (b *Btelegram) handleDownloadAvatar(userid int, channel string) {
 
 		if len(photos.Photos) > 0 {
 			photo := photos.Photos[0][0]
-			url := b.getFileDirectURL(photo.FileID)
+			url := b.getFileDirectURL(photo.FileID)+".png"
 			name := strconv.Itoa(userid) + ".png"
 			b.Log.Debugf("trying to download %#v fileid %#v with size %#v", name, photo.FileID, photo.FileSize)
 
@@ -316,7 +316,7 @@ func (b *Btelegram) handleDownload(rmsg *config.Message, message *tgbotapi.Messa
 }
 
 func (b *Btelegram) getDownloadInfo(id string, suffix string, urlpart bool) (string, string, string) {
-	url := b.getFileDirectURL(id)
+	url := b.getFileDirectURL(id)+suffix
 	name := ""
 	if urlpart {
 		urlPart := strings.Split(url, "/")
