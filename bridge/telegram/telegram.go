@@ -124,7 +124,7 @@ func (b *Btelegram) Send(msg config.Message) (string, error) {
 }
 
 func (b *Btelegram) getFileDirectURL(id string) string {
-	longurl := "https://s.aureus.ga/cgi-bin/tgBotFile.cgi?src=StaphAT&file="+id
+	longurl := "https://s.hanfucw.com/cgi-bin/tgBotFile.cgi?src=StaphAT&file="+id
 	resp, err := http.Get("http://localhost/s/create/"+longurl)
 	if err != nil {
 		return ""
@@ -134,7 +134,7 @@ func (b *Btelegram) getFileDirectURL(id string) string {
 	if err != nil {
 		return ""
 	}
-	return "https://aureus.ga/s/"+string(body)
+	return "https://aureus.life/s/"+string(body)
 }
 
 func (b *Btelegram) sendMessage(chatid int64, username, text string) (string, error) {
