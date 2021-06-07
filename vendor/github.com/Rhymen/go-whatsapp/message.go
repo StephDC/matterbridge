@@ -65,6 +65,10 @@ func (wac *Conn) Send(msg interface{}) (string, error) {
 		msgProto = GetLiveLocationProto(m)
 	case ContactMessage:
 		msgProto = getContactMessageProto(m)
+	case ProductMessage:
+		msgProto = getProductMessageProto(m)
+	case OrderMessage:
+		msgProto = getOrderMessageProto(m)
 	default:
 		return "ERROR", fmt.Errorf("cannot match type %T, use message types declared in the package", msg)
 	}
@@ -238,7 +242,7 @@ func getMessageInfo(msg *proto.WebMessageInfo) MessageInfo {
 	return MessageInfo{
 		Id:        msg.GetKey().GetId(),
 		RemoteJid: msg.GetKey().GetRemoteJid(),
-		SenderJid: msg.GetKey().GetParticipant(),
+		SenderJid: msg.GetParticipant(),
 		FromMe:    msg.GetKey().GetFromMe(),
 		Timestamp: msg.GetMessageTimestamp(),
 		Status:    MessageStatus(msg.GetStatus()),
@@ -258,7 +262,7 @@ func getInfoProto(info *MessageInfo) *proto.WebMessageInfo {
 	}
 	info.FromMe = true
 
-	status := proto.WebMessageInfo_WEB_MESSAGE_INFO_STATUS(info.Status)
+	status := proto.WebMessageInfo_WebMessageInfoStatus(info.Status)
 
 	return &proto.WebMessageInfo{
 		Key: &proto.MessageKey{
@@ -802,6 +806,113 @@ func getContactMessageProto(msg ContactMessage) *proto.WebMessageInfo {
 	return p
 }
 
+/*
+OrderMessage represents a order message.
+*/
+
+type OrderMessage struct {
+	Info              MessageInfo
+	OrderId           string
+	Thumbnail         []byte
+	ItemCount         int32
+	Status            proto.OrderMessage_OrderMessageOrderStatus
+	Surface           proto.OrderMessage_OrderMessageOrderSurface
+	Message           string
+	OrderTitle        string
+	SellerJid         string
+	Token             string
+	TotalAmount1000   int64
+	TotalCurrencyCode string
+	ContextInfo       ContextInfo
+}
+
+func getOrderMessage(msg *proto.WebMessageInfo) OrderMessage {
+	order := msg.GetMessage().GetOrderMessage()
+
+	orderMessage := OrderMessage{
+		Info:              getMessageInfo(msg),
+		OrderId:           order.GetOrderId(),
+		Thumbnail:         order.GetThumbnail(),
+		ItemCount:         order.GetItemCount(),
+		Status:            order.GetStatus(),
+		Surface:           order.GetSurface(),
+		Message:           order.GetMessage(),
+		OrderTitle:        order.GetOrderTitle(),
+		SellerJid:         order.GetSellerJid(),
+		Token:             order.GetToken(),
+		TotalAmount1000:   order.GetTotalAmount1000(),
+		TotalCurrencyCode: order.GetTotalCurrencyCode(),
+		ContextInfo:       getMessageContext(order.GetContextInfo()),
+	}
+
+	return orderMessage
+}
+
+func getOrderMessageProto(msg OrderMessage) *proto.WebMessageInfo {
+	p := getInfoProto(&msg.Info)
+	contextInfo := getContextInfoProto(&msg.ContextInfo)
+
+	p.Message = &proto.Message{
+		OrderMessage: &proto.OrderMessage{
+			Thumbnail:         msg.Thumbnail,
+			ItemCount:         &msg.ItemCount,
+			Status:            &msg.Status,
+			Surface:           &msg.Surface,
+			Message:           &msg.Message,
+			OrderTitle:        &msg.OrderTitle,
+			SellerJid:         &msg.SellerJid,
+			Token:             &msg.Token,
+			TotalAmount1000:   &msg.TotalAmount1000,
+			TotalCurrencyCode: &msg.TotalCurrencyCode,
+			ContextInfo:       contextInfo,
+		},
+	}
+
+	return p
+}
+
+/*
+ProductMessage represents a product message.
+*/
+
+type ProductMessage struct {
+	Info             MessageInfo
+	Product          *proto.ProductSnapshot
+	BusinessOwnerJid string
+	Catalog          *proto.CatalogSnapshot
+	ContextInfo      ContextInfo
+}
+
+func getProductMessage(msg *proto.WebMessageInfo) ProductMessage {
+	prod := msg.GetMessage().GetProductMessage()
+
+	productMessage := ProductMessage{
+		Info:             getMessageInfo(msg),
+		Product:          prod.GetProduct(),
+		BusinessOwnerJid: prod.GetBusinessOwnerJid(),
+		Catalog:          prod.GetCatalog(),
+		ContextInfo:      getMessageContext(prod.GetContextInfo()),
+	}
+
+	return productMessage
+}
+
+func getProductMessageProto(msg ProductMessage) *proto.WebMessageInfo {
+	p := getInfoProto(&msg.Info)
+	contextInfo := getContextInfoProto(&msg.ContextInfo)
+
+	p.Message = &proto.Message{
+		ProductMessage: &proto.ProductMessage{
+			Product:          msg.Product,
+			BusinessOwnerJid: &msg.BusinessOwnerJid,
+			Catalog:          msg.Catalog,
+			ContextInfo:      contextInfo,
+		},
+	}
+
+	return p
+}
+
 func ParseProtoMessage(msg *proto.WebMessageInfo) interface{} {
 
 	switch {
@@ -836,21 +947,24 @@ func ParseProtoMessage(msg *proto.WebMessageInfo) interface{} {
 	case msg.GetMessage().GetContactMessage() != nil:
 		return getContactMessage(msg)
 
+	case msg.GetMessage().GetProductMessage() != nil:
+		return getProductMessage(msg)
+
+	case msg.GetMessage().GetOrderMessage() != nil:
+		return getOrderMessage(msg)
+
 	default:
 		//cannot match message
-
+		return ErrMessageTypeNotImplemented
 	}
-
-	return nil
 }
-
 
 /*
 BatteryMessage represents a battery level and charging state.
 */
 type BatteryMessage struct {
-	Plugged bool
-	Powersave bool
+	Plugged    bool
+	Powersave  bool
 	Percentage int
 }
 
@@ -859,19 +973,29 @@ func getBatteryMessage(msg map[string]string) BatteryMessage {
 	powersave, _ := strconv.ParseBool(msg["powersave"])
 	percentage, _ := strconv.Atoi(msg["value"])
 	batteryMessage := BatteryMessage{
-		Plugged: plugged,
-		Powersave: powersave,
+		Plugged:    plugged,
+		Powersave:  powersave,
 		Percentage: percentage,
 	}
 
 	return batteryMessage
 }
 
+func getNewContact(msg map[string]string) Contact {
+	contact := Contact{
+		Jid:    msg["jid"],
+		Notify: msg["notify"],
+	}
+
+	return contact
+}
 
 func ParseNodeMessage(msg binary.Node) interface{} {
 	switch msg.Description {
 	case "battery":
 		return getBatteryMessage(msg.Attributes)
+	case "user":
+		return getNewContact(msg.Attributes)
 	default:
 		//cannot match message
 	}

@@ -2,7 +2,7 @@ package btelegram
 
 import (
 	"html"
-	"regexp"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode/utf16"
@@ -181,13 +181,15 @@ func (b *Btelegram) handleRecv(updates <-chan tgbotapi.Update) {
 // sends a EVENT_AVATAR_DOWNLOAD message to the gateway if successful.
 // logs an error message if it fails
 func (b *Btelegram) handleDownloadAvatar(userid int, channel string) {
-	rmsg := config.Message{Username: "system",
-		Text:    "avatar",
-		Channel: channel,
-		Account: b.Account,
-		UserID:  strconv.Itoa(userid),
-		Event:   config.EventAvatarDownload,
-		Extra:   make(map[string][]interface{})}
+	rmsg := config.Message{
+		Username: "system",
+		Text:     "avatar",
+		Channel:  channel,
+		Account:  b.Account,
+		UserID:   strconv.Itoa(userid),
+		Event:    config.EventAvatarDownload,
+		Extra:    make(map[string][]interface{}),
+	}
 
 	if _, ok := b.avatarMap[strconv.Itoa(userid)]; !ok {
 		photos, err := b.c.GetUserProfilePhotos(tgbotapi.UserProfilePhotosConfig{UserID: userid, Limit: 1})
@@ -311,6 +313,11 @@ func (b *Btelegram) handleDownload(rmsg *config.Message, message *tgbotapi.Messa
 		b.maybeConvertWebp(&name, data)
 	}
 
+	// rename .oga to .ogg  https://github.com/42wim/matterbridge/issues/906#issuecomment-741793512
+	if strings.HasSuffix(name, ".oga") && message.Audio != nil {
+		name = strings.Replace(name, ".oga", ".ogg", 1)
+	}
+
 	helper.HandleDownloadData(b.Log, rmsg, name, message.Caption, "", data, b.General)
 	return nil
 }
@@ -384,20 +391,31 @@ func (b *Btelegram) handleUploadFile(msg *config.Message, chatid int64) string {
 			Name:  fi.Name,
 			Bytes: *fi.Data,
 		}
-		re := regexp.MustCompile(".(jpg|png)$")
-		if re.MatchString(fi.Name) {
-			c = tgbotapi.NewPhotoUpload(chatid, file)
-		} else {
-			c = tgbotapi.NewDocumentUpload(chatid, file)
+		switch filepath.Ext(fi.Name) {
+		case ".jpg", ".jpe", ".png":
+			pc := tgbotapi.NewPhotoUpload(chatid, file)
+			pc.Caption, pc.ParseMode = TGGetParseMode(b, msg.Username, fi.Comment)
+			c = pc
+		case ".mp4", ".m4v":
+			vc := tgbotapi.NewVideoUpload(chatid, file)
+			vc.Caption, vc.ParseMode = TGGetParseMode(b, msg.Username, fi.Comment)
+			c = vc
+		case ".mp3", ".oga":
+			ac := tgbotapi.NewAudioUpload(chatid, file)
+			ac.Caption, ac.ParseMode = TGGetParseMode(b, msg.Username, fi.Comment)
+			c = ac
+		case ".ogg":
+			voc := tgbotapi.NewVoiceUpload(chatid, file)
+			voc.Caption, voc.ParseMode = TGGetParseMode(b, msg.Username, fi.Comment)
+			c = voc
+		default:
+			dc := tgbotapi.NewDocumentUpload(chatid, file)
+			dc.Caption, dc.ParseMode = TGGetParseMode(b, msg.Username, fi.Comment)
+			c = dc
 		}
 		_, err := b.c.Send(c)
 		if err != nil {
 			b.Log.Errorf("file upload failed: %#v", err)
-		}
-		if fi.Comment != "" {
-			if _, err := b.sendMessage(chatid, msg.Username, fi.Comment); err != nil {
-				b.Log.Errorf("posting file comment %s failed: %s", fi.Comment, err)
-			}
 		}
 	}
 	return ""
@@ -408,7 +426,7 @@ func (b *Btelegram) handleQuote(message, quoteNick, quoteMessage string) string 
 	if format == "" {
 		format = "{MESSAGE} (re @{QUOTENICK}: {QUOTEMESSAGE})"
 	}
-	quoteMessagelength := len(quoteMessage)
+	quoteMessagelength := len([]rune(quoteMessage))
 	if b.GetInt("QuoteLengthLimit") != 0 && quoteMessagelength >= b.GetInt("QuoteLengthLimit") {
 		runes := []rune(quoteMessage)
 		quoteMessage = string(runes[0:b.GetInt("QuoteLengthLimit")])

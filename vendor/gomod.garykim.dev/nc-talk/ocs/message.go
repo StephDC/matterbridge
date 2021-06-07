@@ -35,6 +35,15 @@ const (
 	// MessageCommand is a Nextcloud Talk message that is a command
 	MessageCommand MessageType = "command"
 
+	// MessageDelete is a Nextcloud Talk message indicating a message that was deleted
+	//
+	// If a message has been deleted, a message of MessageType MessageSystem is
+	// sent through the channel for which the parent message's MessageType is MessageDelete.
+	// So, in order to check if a new message is a message deletion request, a check
+	// like this can be used:
+	// msg.MessageType == ocs.MessageSystem && msg.Parent != nil && msg.Parent.MessageType == ocs.MessageDelete
+	MessageDelete MessageType = "comment_deleted"
+
 	// ActorUser is a Nextcloud Talk message sent by a user
 	ActorUser ActorType = "users"
 
@@ -43,7 +52,10 @@ const (
 )
 
 // TalkRoomMessageData describes the data part of a ocs response for a Talk room message
+//
+// Error will be set if a message request ran into an error.
 type TalkRoomMessageData struct {
+	Error             error                       `json:"-"`
 	Message           string                      `json:"message"`
 	ID                int                         `json:"id"`
 	ActorType         ActorType                   `json:"actorType"`
@@ -52,6 +64,8 @@ type TalkRoomMessageData struct {
 	SystemMessage     string                      `json:"systemMessage"`
 	Timestamp         int                         `json:"timestamp"`
 	MessageType       MessageType                 `json:"messageType"`
+	Deleted           bool                        `json:"deleted"`
+	Parent            *TalkRoomMessageData        `json:"parent"`
 	MessageParameters map[string]RichObjectString `json:"-"`
 }
 

@@ -9,7 +9,6 @@ import (
 	"github.com/StephDC/matterbridge/bridge"
 	"github.com/StephDC/matterbridge/bridge/config"
 
-	talk "gomod.garykim.dev/nc-talk"
 	"gomod.garykim.dev/nc-talk/ocs"
 	"gomod.garykim.dev/nc-talk/room"
 	"gomod.garykim.dev/nc-talk/user"
@@ -61,8 +60,12 @@ func (b *Btalk) Disconnect() error {
 }
 
 func (b *Btalk) JoinChannel(channel config.ChannelInfo) error {
+	tr, err := room.NewTalkRoom(b.user, channel.Name)
+	if err != nil {
+		return err
+	}
 	newRoom := Broom{
-		room: talk.NewRoom(b.user, channel.Name),
+		room: tr,
 	}
 	newRoom.ctx, newRoom.ctxCancel = context.WithCancel(context.Background())
 	c, err := newRoom.room.ReceiveMessages(newRoom.ctx)
@@ -71,34 +74,33 @@ func (b *Btalk) JoinChannel(channel config.ChannelInfo) error {
 	}
 	b.rooms = append(b.rooms, newRoom)
 
-	// Config
-	guestSuffix := " (Guest)"
-	if b.IsKeySet("GuestSuffix") {
-		guestSuffix = b.GetString("GuestSuffix")
-	}
-
 	go func() {
 		for msg := range c {
-			// ignore messages that are one of the following
-			// * not a message from a user
-			// * from ourselves
-			if msg.MessageType != ocs.MessageComment || msg.ActorID == b.user.User {
+			msg := msg
+
+			if msg.Error != nil {
+				b.Log.Errorf("Fatal message poll error: %s\n", msg.Error)
+
+				return
+			}
+
+			// Ignore messages that are from the bot user
+			if msg.ActorID == b.user.User {
 				continue
 			}
-			remoteMessage := config.Message{
-				Text:     formatRichObjectString(msg.Message, msg.MessageParameters),
-				Channel:  newRoom.room.Token,
-				Username: DisplayName(msg, guestSuffix),
-				UserID:   msg.ActorID,
-				Account:  b.Account,
+
+			// Handle deleting messages
+			if msg.MessageType == ocs.MessageSystem && msg.Parent != nil && msg.Parent.MessageType == ocs.MessageDelete {
+				b.handleDeletingMessage(&msg, &newRoom)
+				continue
 			}
-			// It is possible for the ID to not be set on older versions of Talk so we only set it if
-			// the ID is not blank
-			if msg.ID != 0 {
-				remoteMessage.ID = strconv.Itoa(msg.ID)
+
+			// Handle sending messages
+			if msg.MessageType == ocs.MessageComment {
+				b.handleSendingMessage(&msg, &newRoom)
+				continue
 			}
-			b.Log.Debugf("<= Message is %#v", remoteMessage)
-			b.Remote <- remoteMessage
+
 		}
 	}()
 	return nil
@@ -111,16 +113,40 @@ func (b *Btalk) Send(msg config.Message) (string, error) {
 		return "", nil
 	}
 
-	// Talk currently only supports sending normal messages
-	if msg.Event != "" {
-		return "", nil
+	// Standard Message Send
+	if msg.Event == "" {
+		// Handle sending files if they are included
+		err := b.handleSendingFile(&msg, r)
+		if err != nil {
+			b.Log.Errorf("Could not send files in message to room %v from %v: %v", msg.Channel, msg.Username, err)
+
+			return "", nil
+		}
+
+		sentMessage, err := r.room.SendMessage(msg.Username + msg.Text)
+		if err != nil {
+			b.Log.Errorf("Could not send message to room %v from %v: %v", msg.Channel, msg.Username, err)
+
+			return "", nil
+		}
+		return strconv.Itoa(sentMessage.ID), nil
 	}
-	sentMessage, err := r.room.SendMessage(msg.Username + msg.Text)
-	if err != nil {
-		b.Log.Errorf("Could not send message to room %v from %v: %v", msg.Channel, msg.Username, err)
-		return "", nil
+
+	// Message Deletion
+	if msg.Event == config.EventMsgDelete {
+		messageID, err := strconv.Atoi(msg.ID)
+		if err != nil {
+			return "", err
+		}
+		data, err := r.room.DeleteMessage(messageID)
+		if err != nil {
+			return "", err
+		}
+		return strconv.Itoa(data.ID), nil
 	}
-	return strconv.Itoa(sentMessage.ID), nil
+
+	// Message is not a type that is currently supported
+	return "", nil
 }
 
 func (b *Btalk) getRoom(token string) *Broom {
@@ -130,6 +156,99 @@ func (b *Btalk) getRoom(token string) *Broom {
 		}
 	}
 	return nil
+}
+
+func (b *Btalk) handleFiles(mmsg *config.Message, message *ocs.TalkRoomMessageData) error {
+	for _, parameter := range message.MessageParameters {
+		if parameter.Type == ocs.ROSTypeFile {
+			// Get the file
+			file, err := b.user.DownloadFile(parameter.Path)
+			if err != nil {
+				return err
+			}
+
+			if mmsg.Extra == nil {
+				mmsg.Extra = make(map[string][]interface{})
+			}
+
+			mmsg.Extra["file"] = append(mmsg.Extra["file"], config.FileInfo{
+				Name:   parameter.Name,
+				Data:   file,
+				Size:   int64(len(*file)),
+				Avatar: false,
+			})
+		}
+	}
+
+	return nil
+}
+
+func (b *Btalk) handleSendingFile(msg *config.Message, r *Broom) error {
+	for _, f := range msg.Extra["file"] {
+		fi := f.(config.FileInfo)
+		if fi.URL == "" {
+			continue
+		}
+
+		message := msg.Username
+		if fi.Comment != "" {
+			message += fi.Comment + " "
+		}
+		message += fi.URL
+		_, err := r.room.SendMessage(message)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (b *Btalk) handleSendingMessage(msg *ocs.TalkRoomMessageData, r *Broom) {
+	remoteMessage := config.Message{
+		Text:     formatRichObjectString(msg.Message, msg.MessageParameters),
+		Channel:  r.room.Token,
+		Username: DisplayName(msg, b.guestSuffix()),
+		UserID:   msg.ActorID,
+		Account:  b.Account,
+	}
+	// It is possible for the ID to not be set on older versions of Talk so we only set it if
+	// the ID is not blank
+	if msg.ID != 0 {
+		remoteMessage.ID = strconv.Itoa(msg.ID)
+	}
+
+	// Handle Files
+	err := b.handleFiles(&remoteMessage, msg)
+	if err != nil {
+		b.Log.Errorf("Error handling file: %#v", msg)
+
+		return
+	}
+
+	b.Log.Debugf("<= Message is %#v", remoteMessage)
+	b.Remote <- remoteMessage
+}
+
+func (b *Btalk) handleDeletingMessage(msg *ocs.TalkRoomMessageData, r *Broom) {
+	remoteMessage := config.Message{
+		Event:   config.EventMsgDelete,
+		Text:    config.EventMsgDelete,
+		Channel: r.room.Token,
+		ID:      strconv.Itoa(msg.Parent.ID),
+		Account: b.Account,
+	}
+	b.Log.Debugf("<= Message being deleted is %#v", remoteMessage)
+	b.Remote <- remoteMessage
+}
+
+func (b *Btalk) guestSuffix() string {
+	guestSuffix := " (Guest)"
+	if b.IsKeySet("GuestSuffix") {
+		guestSuffix = b.GetString("GuestSuffix")
+	}
+
+	return guestSuffix
 }
 
 // Spec: https://github.com/nextcloud/server/issues/1706#issue-182308785
@@ -142,7 +261,7 @@ func formatRichObjectString(message string, parameters map[string]ocs.RichObject
 			text = "@" + text
 		case ocs.ROSTypeFile:
 			if parameter.Link != "" {
-				text = parameter.Link
+				text = parameter.Name
 			}
 		}
 
@@ -152,7 +271,7 @@ func formatRichObjectString(message string, parameters map[string]ocs.RichObject
 	return message
 }
 
-func DisplayName(msg ocs.TalkRoomMessageData, suffix string) string {
+func DisplayName(msg *ocs.TalkRoomMessageData, suffix string) string {
 	if msg.ActorType == ocs.ActorGuest {
 		if msg.ActorDisplayName == "" {
 			return "Guest"

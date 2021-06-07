@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"io/ioutil"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -33,10 +34,20 @@ var (
 	ErrEmptyToken = errors.New("given an empty token")
 	// ErrRoomNotFound is returned when a room with the given token could not be found
 	ErrRoomNotFound = errors.New("room could not be found")
+	// ErrUnauthorized is returned when the room could not be accessed due to being unauthorized
+	ErrUnauthorized = errors.New("unauthorized error when accessing room")
 	// ErrNotModeratorInLobby is returned when the room is in lobby mode but the user is not a moderator
 	ErrNotModeratorInLobby = errors.New("room is in lobby mode but user is not a moderator")
 	// ErrUnexpectedReturnCode is returned when the server did not respond with an expected return code
 	ErrUnexpectedReturnCode = errors.New("unexpected return code")
+	// ErrTooManyRequests is returned if the server returns a 429
+	ErrTooManyRequests = errors.New("too many requests")
+	// ErrLackingCapabilities is returned if the server lacks the required capability for the given function
+	ErrLackingCapabilities = errors.New("lacking required capabilities")
+	// ErrForbidden is returned if the user is forbidden from accessing the requested resource
+	ErrForbidden = errors.New("request forbidden")
+	// ErrUnexpectedResponse is returned if the response from the Nextcloud Talk server is not formatted as expected
+	ErrUnexpectedResponse = errors.New("unexpected response")
 )
 
 // TalkRoom represents a room in Nextcloud Talk
@@ -62,7 +73,7 @@ func NewTalkRoom(tuser *user.TalkUser, token string) (*TalkRoom, error) {
 
 // SendMessage sends a message in the Talk room
 func (t *TalkRoom) SendMessage(msg string) (*ocs.TalkRoomMessageData, error) {
-	url := t.User.NextcloudURL + constants.BaseEndpoint + "/chat/" + t.Token
+	url := t.User.NextcloudURL + constants.BaseEndpoint + "chat/" + t.Token
 	requestParams := map[string]string{
 		"message": msg,
 	}
@@ -86,6 +97,39 @@ func (t *TalkRoom) SendMessage(msg string) (*ocs.TalkRoomMessageData, error) {
 	return &msgInfo.OCS.TalkRoomMessage, err
 }
 
+// DeleteMessage deletes the message with the given messageID on the server.
+//
+// Requires "delete-messages" capability on the Nextcloud Talk server
+func (t *TalkRoom) DeleteMessage(messageID int) (*ocs.TalkRoomMessageData, error) {
+	// Check for required capability
+	capable, err := t.User.Capabilities()
+	if err != nil {
+		return nil, err
+	}
+	if !capable.DeleteMessages {
+		return nil, ErrLackingCapabilities
+	}
+
+	url := t.User.NextcloudURL + constants.BaseEndpoint + "/chat/" + t.Token + "/" + strconv.Itoa(messageID)
+
+	client := t.User.RequestClient(request.Client{
+		URL:    url,
+		Method: "DELETE",
+	})
+	res, err := client.Do()
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode() != http.StatusOK && res.StatusCode() != http.StatusAccepted {
+		return nil, ErrUnexpectedReturnCode
+	}
+	msgInfo, err := ocs.TalkRoomSentResponseUnmarshal(&res.Data)
+	if err != nil {
+		return nil, err
+	}
+	return &msgInfo.OCS.TalkRoomMessage, nil
+}
+
 // ReceiveMessages starts watching for new messages
 func (t *TalkRoom) ReceiveMessages(ctx context.Context) (chan ocs.TalkRoomMessageData, error) {
 	c := make(chan ocs.TalkRoomMessageData)
@@ -93,7 +137,7 @@ func (t *TalkRoom) ReceiveMessages(ctx context.Context) (chan ocs.TalkRoomMessag
 	if err != nil {
 		return nil, err
 	}
-	url := t.User.NextcloudURL + constants.BaseEndpoint + "/chat/" + t.Token
+	url := t.User.NextcloudURL + constants.BaseEndpoint + "chat/" + t.Token
 	requestParam := map[string]string{
 		"lookIntoFuture":   "1",
 		"includeLastKnown": "0",
@@ -127,7 +171,30 @@ func (t *TalkRoom) ReceiveMessages(ctx context.Context) (chan ocs.TalkRoomMessag
 			if err != nil {
 				continue
 			}
-			if res.StatusCode == 200 {
+
+			// If it seems that we no longer have access to the chat for one reason or another, stop the goroutine and set error in the next return.
+			if res.StatusCode == http.StatusNotFound {
+				_ = res.Body.Close()
+				c <- ocs.TalkRoomMessageData{Error: ErrRoomNotFound}
+				return
+			}
+			if res.StatusCode == http.StatusUnauthorized {
+				_ = res.Body.Close()
+				c <- ocs.TalkRoomMessageData{Error: ErrUnauthorized}
+				return
+			}
+			if res.StatusCode == http.StatusTooManyRequests {
+				_ = res.Body.Close()
+				c <- ocs.TalkRoomMessageData{Error: ErrTooManyRequests}
+				return
+			}
+			if res.StatusCode == http.StatusForbidden {
+				_ = res.Body.Close()
+				c <- ocs.TalkRoomMessageData{Error: ErrForbidden}
+				return
+			}
+
+			if res.StatusCode == http.StatusOK {
 				lastKnown = res.Header.Get("X-Chat-Last-Given")
 				data, err := ioutil.ReadAll(res.Body)
 				_ = res.Body.Close()
@@ -154,7 +221,7 @@ func (t *TalkRoom) TestConnection() error {
 	if t.Token == "" {
 		return ErrEmptyToken
 	}
-	url := t.User.NextcloudURL + constants.BaseEndpoint + "/chat/" + t.Token
+	url := t.User.NextcloudURL + constants.BaseEndpoint + "chat/" + t.Token
 	requestParam := map[string]string{
 		"lookIntoFuture":   "0",
 		"includeLastKnown": "0",
@@ -170,13 +237,13 @@ func (t *TalkRoom) TestConnection() error {
 		return err
 	}
 	switch res.StatusCode() {
-	case 200:
+	case http.StatusOK:
 		return nil
-	case 304:
+	case http.StatusNotModified:
 		return nil
-	case 404:
+	case http.StatusNotFound:
 		return ErrRoomNotFound
-	case 412:
+	case http.StatusPreconditionFailed:
 		return ErrNotModeratorInLobby
 	}
 	return ErrUnexpectedReturnCode

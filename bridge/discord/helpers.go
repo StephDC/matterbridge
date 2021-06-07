@@ -9,6 +9,30 @@ import (
 	"github.com/matterbridge/discordgo"
 )
 
+func (b *Bdiscord) getAllowedMentions() *discordgo.MessageAllowedMentions {
+	// If AllowMention is not specified, then allow all mentions (default Discord behavior)
+	if !b.IsKeySet("AllowMention") {
+		return nil
+	}
+
+	// Otherwise, allow only the mentions that are specified
+	allowedMentionTypes := make([]discordgo.AllowedMentionType, 0, 3)
+	for _, m := range b.GetStringSlice("AllowMention") {
+		switch m {
+		case "everyone":
+			allowedMentionTypes = append(allowedMentionTypes, discordgo.AllowedMentionTypeEveryone)
+		case "roles":
+			allowedMentionTypes = append(allowedMentionTypes, discordgo.AllowedMentionTypeRoles)
+		case "users":
+			allowedMentionTypes = append(allowedMentionTypes, discordgo.AllowedMentionTypeUsers)
+		}
+	}
+
+	return &discordgo.MessageAllowedMentions{
+		Parse: allowedMentionTypes,
+	}
+}
+
 func (b *Bdiscord) getNick(user *discordgo.User, guildID string) string {
 	b.membersMutex.RLock()
 	defer b.membersMutex.RUnlock()
@@ -196,7 +220,7 @@ func (b *Bdiscord) replaceAction(text string) (string, bool) {
 }
 
 // splitURL splits a webhookURL and returns the ID and token.
-func (b *Bdiscord) splitURL(url string) (string, string) {
+func (b *Bdiscord) splitURL(url string) (string, string, bool) {
 	const (
 		expectedWebhookSplitCount = 7
 		webhookIdxID              = 5
@@ -204,43 +228,9 @@ func (b *Bdiscord) splitURL(url string) (string, string) {
 	)
 	webhookURLSplit := strings.Split(url, "/")
 	if len(webhookURLSplit) != expectedWebhookSplitCount {
-		b.Log.Fatalf("%s is no correct discord WebhookURL", url)
+		return "", "", false
 	}
-	return webhookURLSplit[webhookIdxID], webhookURLSplit[webhookIdxToken]
-}
-
-// getcacheID tries to find a corresponding msgID in the webhook cache.
-// if not found returns the original request.
-func (b *Bdiscord) getCacheID(msgID string) string {
-	b.webhookMutex.RLock()
-	defer b.webhookMutex.RUnlock()
-	for k, v := range b.webhookCache {
-		if msgID == k {
-			return v
-		}
-	}
-	return msgID
-}
-
-// updateCacheID updates the cache so that the newID takes the place of
-// the original ID. This is used for edit/deletes in combination with webhooks
-// as editing a message via webhook means deleting the message and creating a
-// new message (with a new ID). This ID needs to be set instead of the original ID
-func (b *Bdiscord) updateCacheID(origID, newID string) {
-	b.webhookMutex.Lock()
-	match := false
-	for k, v := range b.webhookCache {
-		if v == origID {
-			delete(b.webhookCache, k)
-			b.webhookCache[origID] = newID
-			match = true
-			continue
-		}
-	}
-	if !match && origID != "" {
-		b.webhookCache[origID] = newID
-	}
-	b.webhookMutex.Unlock()
+	return webhookURLSplit[webhookIdxID], webhookURLSplit[webhookIdxToken], true
 }
 
 func enumerateUsernames(s string) []string {
