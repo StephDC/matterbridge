@@ -14,9 +14,9 @@ import (
 	"layeh.com/gumble/gumble"
 	"layeh.com/gumble/gumbleutil"
 
-	"github.com/42wim/matterbridge/bridge"
-	"github.com/42wim/matterbridge/bridge/config"
-	"github.com/42wim/matterbridge/bridge/helper"
+	"github.com/StephDC/matterbridge/bridge"
+	"github.com/StephDC/matterbridge/bridge/config"
+	"github.com/StephDC/matterbridge/bridge/helper"
 	stripmd "github.com/writeas/go-strip-markdown"
 
 	// We need to import the 'data' package as an implicit dependency.

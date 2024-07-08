@@ -6,8 +6,8 @@ import (
 	"io/ioutil"
 	"strings"
 
-	"github.com/42wim/matterbridge/bridge/config"
-	"github.com/42wim/matterbridge/bridge/helper"
+	"github.com/StephDC/matterbridge/bridge/config"
+	"github.com/StephDC/matterbridge/bridge/helper"
 
 	msgraph "github.com/yaegashi/msgraph.go/beta"
 )

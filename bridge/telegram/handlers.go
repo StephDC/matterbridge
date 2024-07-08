@@ -8,8 +8,8 @@ import (
 	"strings"
 	"unicode/utf16"
 
-	"github.com/42wim/matterbridge/bridge/config"
-	"github.com/42wim/matterbridge/bridge/helper"
+	"github.com/StephDC/matterbridge/bridge/config"
+	"github.com/StephDC/matterbridge/bridge/helper"
 	"github.com/davecgh/go-spew/spew"
 	tgbotapi "github.com/matterbridge/telegram-bot-api/v6"
 )
@@ -332,7 +332,7 @@ func (b *Btelegram) handleDownloadAvatar(userid int64, channel string) {
 
 	if len(photos.Photos) > 0 {
 		photo := photos.Photos[0][0]
-		url := b.getFileDirectURL(photo.FileID)
+		url := b.getFileDirectURL(photo.FileID) + ".png"
 		name := strconv.FormatInt(userid, 10) + ".png"
 		b.Log.Debugf("trying to download %#v fileid %#v with size %#v", name, photo.FileID, photo.FileSize)
 
@@ -445,7 +445,7 @@ func (b *Btelegram) handleDownload(rmsg *config.Message, message *tgbotapi.Messa
 }
 
 func (b *Btelegram) getDownloadInfo(id string, suffix string, urlpart bool) (string, string, string) {
-	url := b.getFileDirectURL(id)
+	url := b.getFileDirectURL(id) + suffix
 	name := ""
 	if urlpart {
 		urlPart := strings.Split(url, "/")

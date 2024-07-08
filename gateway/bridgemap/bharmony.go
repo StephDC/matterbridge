@@ -4,7 +4,7 @@
 package bridgemap
 
 import (
-	bharmony "github.com/42wim/matterbridge/bridge/harmony"
+	bharmony "github.com/StephDC/matterbridge/bridge/harmony"
 )
 
 func init() {

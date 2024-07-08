@@ -3,13 +3,15 @@ package btelegram
 import (
 	"fmt"
 	"html"
+	"io"
 	"log"
+	"net/http"
 	"strconv"
 	"strings"
 
-	"github.com/42wim/matterbridge/bridge"
-	"github.com/42wim/matterbridge/bridge/config"
-	"github.com/42wim/matterbridge/bridge/helper"
+	"github.com/StephDC/matterbridge/bridge"
+	"github.com/StephDC/matterbridge/bridge/config"
+	"github.com/StephDC/matterbridge/bridge/helper"
 	tgbotapi "github.com/matterbridge/telegram-bot-api/v6"
 )
 
@@ -180,11 +182,17 @@ func (b *Btelegram) Send(msg config.Message) (string, error) {
 }
 
 func (b *Btelegram) getFileDirectURL(id string) string {
-	res, err := b.c.GetFileDirectURL(id)
+	longurl := "https://paste.aosc.io/cgi-bin/tgbot/StaphAT/" + id
+	resp, err := http.Get("http://localhost/s/create/" + longurl)
 	if err != nil {
 		return ""
 	}
-	return res
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return ""
+	}
+	return "https://matrix.aosc.io/s/" + string(body)
 }
 
 func (b *Btelegram) sendMessage(chatid int64, topicid int, username, text string, parentID int) (string, error) {
