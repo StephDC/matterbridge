@@ -182,7 +182,7 @@ func (b *Btelegram) Send(msg config.Message) (string, error) {
 }
 
 func (b *Btelegram) getFileDirectURL(id string) string {
-	longurl := "https://paste.aosc.io/cgi-bin/tgbot/StaphAT/" + id
+	longurl := "https://matrix.aosc.io/cgi-bin/tgbot/StaphAT/" + id
 	resp, err := http.Get("http://localhost/s/create/" + longurl)
 	if err != nil {
 		return ""
